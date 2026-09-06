@@ -3,7 +3,7 @@
 OBS のブラウザソースだけで動く、格闘ゲーム配信用スコアボードツール。
 プレイヤー名・スコア・ラウンド情報・BO フォーマットを、配信画面上の好きな位置・好きな見た目で表示できます。
 
-![スコアボードの表示例](assets/demo.png)
+![透過PNG 1枚で、OBS用スコアボードに](assets/hero.png)
 
 サーバーもビルドも不要です。`npm install` も webpack も要りません。**HTML と JS を置くだけで動きます。**
 
@@ -28,7 +28,9 @@ OBS のブラウザソースだけで動く、格闘ゲーム配信用スコア�
 | `display.html` | 透過表示専用のスコアボード本体。**これを配信シーンに追加する** |
 | `scoreboard-core.js` | 状態の初期値・保存・読み込み・マージ処理の共有ロジック |
 | `assets/scoreboard-overlay.png` | サンプルのスコアボード画像(透過 PNG / 1920×1080) |
-| `assets/demo.png` | 表示例(README 用) |
+| `assets/hero.png` | README 冒頭のバナー |
+| `assets/demo.png` | 配信画面での表示例 |
+| `assets/control-panel.png` | 操作パネルのスクリーンショット |
 
 3つのファイルは**同じフォルダに置いてください**。`control.html` と `display.html` は
 `scoreboard-core.js` を相対パスで読み込みます。
