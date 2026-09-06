@@ -1,0 +1,946 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scoreboard Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Bebas+Neue&family=Inter:wght@400;700;900&family=Noto+Sans+JP:wght@400;700;900&family=Oswald:wght@400;600;700&family=Russo+One&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg0: #14161a;
+    --bg1: #1b1e24;
+    --bg2: #23272f;
+    --bg3: #2c313a;
+    --line: #363c47;
+    --fg: #e6e9ef;
+    --fg-dim: #9aa3b2;
+    --accent: #4f8cff;
+    --accent2: #ff5c7a;
+    --ok: #35c88a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg0);
+    color: var(--fg);
+    font-family: 'Inter', 'Noto Sans JP', system-ui, sans-serif;
+    font-size: 13px;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    background: var(--bg1);
+    border-bottom: 1px solid var(--line);
+    position: sticky;
+    top: 0;
+    z-index: 20;
+  }
+  header h1 { font-size: 15px; margin: 0; letter-spacing: .04em; }
+  header .hint { color: var(--fg-dim); font-size: 11px; }
+
+  .wrap { padding: 16px; max-width: 1760px; margin: 0 auto; }
+
+  /* 左: 設定(スクロール) / 右: プレビュー(スクロール追従で固定) */
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(380px, 46%);
+    gap: 16px;
+    align-items: start;
+  }
+  .col-left { min-width: 0; }
+  .col-right {
+    min-width: 0;
+    position: sticky;
+    top: 49px;          /* sticky ヘッダーの高さ + 余白 */
+  }
+  .col-right .card { margin-bottom: 0; }
+  /* 画面が狭いときは 1 カラムに畳み、プレビューを上に出す */
+  @media (max-width: 1000px) {
+    .layout { grid-template-columns: 1fr; }
+    .col-right { order: -1; top: 41px; }
+  }
+
+  .card {
+    background: var(--bg1);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 14px;
+  }
+  .card > h2 {
+    font-size: 12px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+    margin: 0 0 10px;
+    font-weight: 700;
+  }
+
+  /* ---- プレビュー(市松模様の透過背景) ---- */
+  #previewWrap {
+    overflow: auto;
+    /* プレビューが縦に伸びても画面内に収める */
+    max-height: calc(100vh - 150px);
+    background-color: #1a1c20;
+    background-image:
+      linear-gradient(45deg, #262a31 25%, transparent 25%),
+      linear-gradient(-45deg, #262a31 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #262a31 75%),
+      linear-gradient(-45deg, transparent 75%, #262a31 75%);
+    background-size: 20px 20px;
+    background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+  }
+  #stageOuter { position: relative; }
+  #stage {
+    position: absolute;
+    left: 0; top: 0;
+    transform-origin: top left;
+    overflow: hidden;
+  }
+  #bg {
+    position: absolute; left: 0; top: 0;
+    width: 100%; height: 100%;
+    object-fit: contain;
+    pointer-events: none;
+  }
+  .el {
+    position: absolute;
+    white-space: nowrap;
+    line-height: 1.1;
+    user-select: none;
+    touch-action: none;
+    cursor: move;
+    outline: 1px dashed rgba(255,255,255,.25);
+  }
+  .el.selected { outline: 1px solid var(--accent); }
+  .el.hidden-el { opacity: .3; }
+  .el > span { display: inline-block; pointer-events: none; }
+  .el > .handle {
+    position: absolute;
+    right: -5px; bottom: -5px;
+    width: 12px; height: 12px;
+    background: var(--accent);
+    border: 1px solid #fff;
+    border-radius: 2px;
+    cursor: nwse-resize;
+    touch-action: none;
+  }
+
+  /* ---- フォーム部品 ---- */
+  label { display: block; color: var(--fg-dim); font-size: 11px; margin-bottom: 3px; }
+  input[type=text], input[type=number], select {
+    background: var(--bg3);
+    color: var(--fg);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 5px 7px;
+    font: inherit;
+    width: 100%;
+  }
+  input[type=color] {
+    background: var(--bg3);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    width: 100%; height: 28px;
+    padding: 2px;
+    cursor: pointer;
+  }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  button {
+    background: var(--bg3);
+    color: var(--fg);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 6px 10px;
+    font: inherit;
+    cursor: pointer;
+  }
+  button:hover { background: #363d48; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { filter: brightness(1.1); }
+  button.danger { background: #3a2429; border-color: #5c343c; color: #ffb9c4; }
+  button.on { background: var(--ok); border-color: var(--ok); color: #06231a; font-weight: 700; }
+
+  .row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+  .row > * { flex: 1 1 0; min-width: 0; }
+  .row > .fixed { flex: 0 0 auto; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 12px;
+  }
+  .panel {
+    background: var(--bg2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 10px;
+  }
+  .panel.selected { border-color: var(--accent); }
+  .panel h3 {
+    margin: 0 0 8px;
+    font-size: 12px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .panel h3 .tag {
+    margin-left: auto;
+    font-weight: 400;
+    font-size: 10px;
+    color: var(--fg-dim);
+  }
+  .fld { margin-bottom: 8px; }
+  .val { color: var(--fg); font-variant-numeric: tabular-nums; }
+
+  /* スコア操作 */
+  .scorebox { display: flex; align-items: center; gap: 6px; }
+  .scorebox .num {
+    min-width: 56px; text-align: center;
+    font-size: 26px; font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    background: var(--bg3); border: 1px solid var(--line);
+    border-radius: 4px; padding: 2px 6px;
+  }
+  .scorebox button { width: 36px; font-size: 16px; line-height: 1; padding: 8px 0; }
+
+  /* トグルスイッチ */
+  .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+  .switch input { display: none; }
+  .switch .track {
+    width: 38px; height: 20px; border-radius: 10px;
+    background: var(--bg3); border: 1px solid var(--line);
+    position: relative; transition: background .15s;
+  }
+  .switch .track::after {
+    content: ''; position: absolute; top: 2px; left: 2px;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--fg-dim); transition: transform .15s, background .15s;
+  }
+  .switch input:checked + .track { background: var(--ok); border-color: var(--ok); }
+  .switch input:checked + .track::after { transform: translateX(18px); background: #fff; }
+
+  details { margin-top: 8px; }
+  summary { cursor: pointer; color: var(--fg-dim); font-size: 11px; }
+  pre {
+    background: #0f1115; border: 1px solid var(--line); border-radius: 6px;
+    padding: 10px; overflow: auto; font-size: 11px; line-height: 1.5;
+    color: #cfd6e2; max-height: 340px;
+  }
+  .note { color: var(--fg-dim); font-size: 11px; line-height: 1.6; }
+  #syncStatus { font-size: 11px; color: var(--fg-dim); }
+  #syncStatus.err { color: #ff8fa3; }
+  #syncStatus.ok { color: var(--ok); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>SCOREBOARD CONTROL</h1>
+  <span class="hint">このページは配信シーンに入れないこと / display.html だけを配信シーンに追加</span>
+</header>
+
+<div class="wrap layout">
+
+  <!-- ================= 左カラム: 設定(スクロール) ================= -->
+  <div class="col-left">
+
+  <!-- ================= 試合情報 ================= -->
+  <div class="card">
+    <h2>試合情報</h2>
+    <div class="grid">
+
+      <div class="panel">
+        <h3>P1</h3>
+        <div class="fld">
+          <label>名前</label>
+          <input type="text" id="in_p1name">
+        </div>
+        <label>スコア</label>
+        <div class="scorebox">
+          <button data-bump="p1score" data-delta="-1">−</button>
+          <div class="num" id="num_p1score">0</div>
+          <button data-bump="p1score" data-delta="1">＋</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>P2</h3>
+        <div class="fld">
+          <label>名前</label>
+          <input type="text" id="in_p2name">
+        </div>
+        <label>スコア</label>
+        <div class="scorebox">
+          <button data-bump="p2score" data-delta="-1">−</button>
+          <div class="num" id="num_p2score">0</div>
+          <button data-bump="p2score" data-delta="1">＋</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>ラウンド / フォーマット</h3>
+        <div class="fld">
+          <label>ラウンド情報</label>
+          <input type="text" id="in_round">
+        </div>
+        <div class="fld">
+          <label>BO フォーマット</label>
+          <select id="in_bo"></select>
+        </div>
+        <button class="danger" id="btnResetScores">スコアをリセット</button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ================= 背景・キャンバス ================= -->
+  <div class="card">
+    <h2>背景・キャンバス</h2>
+    <div class="row">
+      <div>
+        <label>背景画像(透過 PNG 推奨)</label>
+        <input type="file" id="in_bgfile" accept="image/*">
+      </div>
+      <div class="fixed"><button class="danger" id="btnClearBg">背景を削除</button></div>
+      <div>
+        <label>キャンバス幅 (px)</label>
+        <input type="number" id="in_canvasW" min="1" step="1">
+      </div>
+      <div>
+        <label>キャンバス高さ (px)</label>
+        <input type="number" id="in_canvasH" min="1" step="1">
+      </div>
+    </div>
+    <p class="note">
+      背景画像は data URL として localStorage に保存されます。巨大な画像は保存容量(約 5MB)を超えて失敗することがあるため、
+      配信解像度に合わせて事前に縮小しておくことを推奨します。
+    </p>
+  </div>
+
+  <!-- ================= 要素スタイル ================= -->
+  <div class="card">
+    <h2>要素ごとの表示設定</h2>
+    <div class="row" style="margin-bottom:10px">
+      <label class="switch fixed">
+        <input type="checkbox" id="in_linkStyle">
+        <span class="track"></span>
+        <span>P1 と P2 のスタイルを連動</span>
+      </label>
+      <span class="note fixed">連動 ON の間は フォント / 色 / 縁取り / 縁取り色 / 横幅 が左右で同期します(位置とサイズは除く)。</span>
+    </div>
+    <div class="grid" id="panels"><!-- JS で生成 --></div>
+  </div>
+
+  <!-- ================= スプレッドシート連携 ================= -->
+  <div class="card">
+    <h2>Google スプレッドシート連携(Apps Script)</h2>
+    <div class="row">
+      <div style="flex:3 1 400px">
+        <label>Apps Script WebアプリのURL(/exec で終わるもの)</label>
+        <input type="text" id="in_sheetUrl" placeholder="https://script.google.com/macros/s/XXXXXXXX/exec">
+      </div>
+      <label class="switch fixed">
+        <input type="checkbox" id="in_sheetEnabled">
+        <span class="track"></span>
+        <span>同期 ON</span>
+      </label>
+      <div class="fixed"><button id="btnSyncNow">今すぐ取得</button></div>
+    </div>
+    <p id="syncStatus">同期は停止中です。</p>
+    <p class="note">
+      同期 ON の間は 7 秒ごとにシートを取得し、取得できた項目
+      (p1name / p2name / p1score / p2score / round / bo)を上書きします。
+      スタイルや位置は同期対象外です。ローカル操作と競合した場合は<strong>直近に取得したシートの値が優先</strong>されるため、
+      手元だけで操作したいときは同期を OFF にしてください。
+    </p>
+
+    <details>
+      <summary>Apps Script サンプルコードとシート構成を表示</summary>
+      <p class="note" style="margin:8px 0 4px">
+        シート「Scoreboard」の 1 行目をヘッダー、2 行目を値とする横 1 行構成:
+      </p>
+      <pre>| A       | B       | C       | D       | E       | F   |
+| p1name  | p2name  | p1score | p2score | round   | bo  |
+| Player1 | Player2 | 2       | 1       | ROUND 1 | BO3 |</pre>
+      <pre>/**
+ * Google Apps Script: スコアボード用 JSON エンドポイント
+ *
+ * 使い方:
+ *   1. 対象のスプレッドシートを開き、[拡張機能] > [Apps Script] を選択
+ *   2. このコードを貼り付けて保存
+ *   3. [デプロイ] > [新しいデプロイ] > 種類「ウェブアプリ」
+ *      - 次のユーザーとして実行: 自分
+ *      - アクセスできるユーザー: 全員
+ *   4. 発行された /exec で終わる URL を control.html の入力欄に貼る
+ *
+ * 【重要・セキュリティ注意】
+ *   「アクセスできるユーザー: 全員」で公開した場合、URL を知っている人は
+ *   誰でもこのエンドポイントにアクセスでき、シートの内容(プレイヤー名や
+ *   スコア)を読み取れます。URL が漏れると意図しない第三者に閲覧される
+ *   可能性があるため、URL は配信画面や公開リポジトリに映さないでください。
+ *   また、シート自体の編集権限を渡した協力者は当然スコアを書き換えられます。
+ *   機密情報はこのシートに置かないこと。
+ */
+var SHEET_NAME = 'Scoreboard';
+
+function doGet(e) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  var values = sheet.getDataRange().getValues();
+  var headers = values[0];   // 1 行目 = カラム名
+  var row = values[1] || []; // 2 行目 = 現在の値
+
+  var out = {};
+  for (var i = 0; i &lt; headers.length; i++) {
+    var key = String(headers[i]).trim();
+    if (!key) continue;
+    out[key] = row[i];
+  }
+  out.updatedAt = new Date().toISOString();
+
+  return ContentService
+    .createTextOutput(JSON.stringify(out))
+    .setMimeType(ContentService.MimeType.JSON);
+}</pre>
+    </details>
+  </div>
+
+  <div class="card" style="margin-bottom:0">
+    <h2>OBS 設定メモ</h2>
+    <p class="note">
+      1. OBS に <strong>display.html</strong> をブラウザソースとして追加(幅・高さはキャンバス設定と同じ値に)。これが配信に映る本体です。<br>
+      2. OBS に <strong>control.html</strong> もブラウザソースとして追加しますが、<strong>配信シーンには含めない</strong>でください
+      (専用の非表示シーンに置くか、ソース一覧で目玉アイコンを OFF にする)。<br>
+      3. 両方を OBS 内のブラウザソースとして追加することで、同じ localStorage を共有し自動的に同期されます。<br>
+      4. control.html を操作するときは、そのソースを右クリック →「操作(Interact)」で開きます。
+    </p>
+  </div>
+
+  </div><!-- /col-left -->
+
+  <!-- ================= 右カラム: プレビュー(固定) ================= -->
+  <div class="col-right">
+    <div class="card">
+      <h2>プレビュー(ドラッグで配置 / 右下ハンドルでサイズ変更)</h2>
+      <div id="previewWrap">
+        <div id="stageOuter">
+          <div id="stage"><img id="bg" alt=""></div>
+        </div>
+      </div>
+      <p class="note" id="previewInfo"></p>
+    </div>
+  </div><!-- /col-right -->
+
+</div>
+
+<script src="scoreboard-core.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var state = loadState();
+  var selected = null;          // 選択中の要素キー
+  var scale = 1;                // プレビューの表示倍率
+  var nodes = {};               // key -> { box, span, handle }
+  var ctrls = {};               // key -> パネル内の入力要素まとめ
+
+  var stage = document.getElementById('stage');
+  var stageOuter = document.getElementById('stageOuter');
+  var previewWrap = document.getElementById('previewWrap');
+  var previewInfo = document.getElementById('previewInfo');
+  var bgImg = document.getElementById('bg');
+
+  /* ---------------------------------------------------------------
+   * 保存 + 再描画
+   * ------------------------------------------------------------- */
+  function commit() {
+    saveState(state);
+    renderStage();
+  }
+
+  /* ---------------------------------------------------------------
+   * プレビュー描画
+   * ------------------------------------------------------------- */
+  function computeScale() {
+    var avail = previewWrap.clientWidth - 2;
+    scale = Math.min(1, avail / state.canvasW);
+    if (!isFinite(scale) || scale <= 0) scale = 1;
+  }
+
+  function renderStage() {
+    computeScale();
+    stage.style.width = state.canvasW + 'px';
+    stage.style.height = state.canvasH + 'px';
+    stage.style.transform = 'scale(' + scale + ')';
+    stageOuter.style.width = (state.canvasW * scale) + 'px';
+    stageOuter.style.height = (state.canvasH * scale) + 'px';
+    previewInfo.textContent =
+      'キャンバス ' + state.canvasW + ' × ' + state.canvasH +
+      ' px / 表示倍率 ' + Math.round(scale * 100) + '%' +
+      (selected ? ' / 選択中: ' + selected : '');
+
+    if (state.bg) {
+      bgImg.src = state.bg;
+      bgImg.style.display = 'block';
+    } else {
+      bgImg.removeAttribute('src');
+      bgImg.style.display = 'none';
+    }
+
+    SCOREBOARD_ELEMENTS.forEach(function (def) {
+      var n = nodes[def.key];
+      var pos = state.positions[def.key];
+      n.span.textContent = scoreboardTextFor(def.key, state);
+      scoreboardApplyStyle(n.box, n.span, pos);
+      /* コントロール側では非表示要素も薄く表示して掴めるようにする */
+      n.box.style.display = 'block';
+      n.box.classList.toggle('hidden-el', !pos.visible);
+      n.box.classList.toggle('selected', selected === def.key);
+    });
+  }
+
+  /* ---------------------------------------------------------------
+   * 要素 DOM 生成 + ドラッグ / リサイズ
+   * ------------------------------------------------------------- */
+  SCOREBOARD_ELEMENTS.forEach(function (def) {
+    var box = document.createElement('div');
+    box.className = 'el';
+    box.dataset.key = def.key;
+    box.title = def.label;
+
+    var span = document.createElement('span');
+    var handle = document.createElement('div');
+    handle.className = 'handle';
+    handle.title = 'ドラッグでフォントサイズ変更';
+
+    box.appendChild(span);
+    box.appendChild(handle);
+    stage.appendChild(box);
+    nodes[def.key] = { box: box, span: span, handle: handle };
+
+    var drag = null;
+
+    box.addEventListener('pointerdown', function (ev) {
+      if (ev.target === handle) return; // リサイズ側で処理
+      ev.preventDefault();
+      try { box.setPointerCapture(ev.pointerId); } catch (e) { /* 捕捉できなくてもドラッグは継続 */ }
+      var pos = state.positions[def.key];
+      drag = {
+        mode: 'move',
+        startX: ev.clientX, startY: ev.clientY,
+        origX: pos.x, origY: pos.y
+      };
+      select(def.key);
+    });
+
+    handle.addEventListener('pointerdown', function (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      try { handle.setPointerCapture(ev.pointerId); } catch (e) { /* 同上 */ }
+      var pos = state.positions[def.key];
+      drag = {
+        mode: 'size',
+        startX: ev.clientX, startY: ev.clientY,
+        origSize: pos.size
+      };
+      select(def.key);
+    });
+
+    function onMove(ev) {
+      if (!drag) return;
+      var pos = state.positions[def.key];
+      /* 画面上の移動量をキャンバス座標に戻す */
+      var dx = (ev.clientX - drag.startX) / scale;
+      var dy = (ev.clientY - drag.startY) / scale;
+      if (drag.mode === 'move') {
+        pos.x = Math.round(drag.origX + dx);
+        pos.y = Math.round(drag.origY + dy);
+      } else {
+        pos.size = Math.max(8, Math.round(drag.origSize + (dx + dy) / 2));
+      }
+      syncPanel(def.key); // パネルの X / Y / サイズ表示をドラッグに追従させる
+      renderStage();
+    }
+
+    function onUp() {
+      if (!drag) return;
+      drag = null;
+      commit();
+    }
+
+    box.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointermove', onMove);
+    box.addEventListener('pointerup', onUp);
+    handle.addEventListener('pointerup', onUp);
+    box.addEventListener('pointercancel', onUp);
+    handle.addEventListener('pointercancel', onUp);
+  });
+
+  function select(key) {
+    selected = key;
+    SCOREBOARD_ELEMENTS.forEach(function (def) {
+      nodes[def.key].box.classList.toggle('selected', def.key === key);
+      ctrls[def.key].panel.classList.toggle('selected', def.key === key);
+    });
+    renderStage();
+  }
+
+  /* ---------------------------------------------------------------
+   * スタイル値の書き込み(連動トグル対応)
+   * ------------------------------------------------------------- */
+  function setStyleField(key, field, value) {
+    state.positions[key][field] = value;
+    var pair = SCOREBOARD_STYLE_PAIRS[key];
+    /* 連動 ON かつスタイル 5 項目のときだけ反対側へも反映 */
+    if (state.linkP1P2Style && pair && SCOREBOARD_STYLE_KEYS.indexOf(field) !== -1) {
+      state.positions[pair][field] = value;
+      syncPanel(pair);
+    }
+    commit();
+  }
+
+  /* 反対側へスタイル 5 項目 + サイズをコピー(位置 x, y はコピーしない) */
+  function copyStyleToPair(key) {
+    var pair = SCOREBOARD_STYLE_PAIRS[key];
+    if (!pair) return;
+    SCOREBOARD_COPY_KEYS.forEach(function (f) {
+      state.positions[pair][f] = state.positions[key][f];
+    });
+    syncPanel(pair);
+    commit();
+  }
+
+  /* ---------------------------------------------------------------
+   * 要素パネル生成
+   * ------------------------------------------------------------- */
+  var panelsEl = document.getElementById('panels');
+
+  SCOREBOARD_ELEMENTS.forEach(function (def) {
+    var key = def.key;
+    var pair = SCOREBOARD_STYLE_PAIRS[key];
+
+    var panel = document.createElement('div');
+    panel.className = 'panel';
+
+    var fontOpts = SCOREBOARD_FONTS.map(function (f) {
+      return '<option value="' + f.value.replace(/"/g, '&quot;') + '">' + f.label + '</option>';
+    }).join('');
+
+    panel.innerHTML =
+      '<h3>' + def.label +
+        '<span class="tag">' + key + '</span>' +
+      '</h3>' +
+      '<div class="row" style="margin-bottom:8px">' +
+        '<button class="fixed" data-role="vis"></button>' +
+        (pair ? '<button class="fixed" data-role="copy" title="フォント / 文字色 / 縁取り / 縁取り色 / 横幅 / サイズ を反対側にコピーします(位置はコピーしません)">反対側にコピー</button>' : '') +
+      '</div>' +
+      '<div class="fld">' +
+        '<label>サイズ <span class="val" data-role="sizeVal"></span> px</label>' +
+        '<input type="range" data-role="size" min="8" max="300" step="1">' +
+      '</div>' +
+      '<div class="fld">' +
+        '<label>フォント</label>' +
+        '<select data-role="font">' + fontOpts + '</select>' +
+      '</div>' +
+      '<div class="row" style="margin-bottom:8px">' +
+        '<div><label>文字色</label><input type="color" data-role="color"></div>' +
+        '<div><label>縁取り色</label><input type="color" data-role="outlineColor"></div>' +
+      '</div>' +
+      '<div class="fld">' +
+        '<label>縁取りの太さ <span class="val" data-role="outlineVal"></span> px</label>' +
+        '<input type="range" data-role="outline" min="0" max="20" step="0.5">' +
+      '</div>' +
+      '<div class="fld">' +
+        '<label>文字の横幅 <span class="val" data-role="widthVal"></span> %</label>' +
+        '<input type="range" data-role="widthScale" min="50" max="150" step="1">' +
+      '</div>' +
+      '<div class="row">' +
+        '<div><label>X</label><input type="number" data-role="x" step="1"></div>' +
+        '<div><label>Y</label><input type="number" data-role="y" step="1"></div>' +
+      '</div>';
+
+    panelsEl.appendChild(panel);
+
+    function q(role) { return panel.querySelector('[data-role="' + role + '"]'); }
+
+    var c = {
+      panel: panel,
+      vis: q('vis'),
+      size: q('size'), sizeVal: q('sizeVal'),
+      font: q('font'),
+      color: q('color'), outlineColor: q('outlineColor'),
+      outline: q('outline'), outlineVal: q('outlineVal'),
+      widthScale: q('widthScale'), widthVal: q('widthVal'),
+      x: q('x'), y: q('y')
+    };
+    ctrls[key] = c;
+
+    panel.addEventListener('pointerdown', function () { select(key); });
+
+    c.vis.addEventListener('click', function () {
+      state.positions[key].visible = !state.positions[key].visible;
+      syncPanel(key);
+      commit();
+    });
+
+    if (pair) {
+      q('copy').addEventListener('click', function () { copyStyleToPair(key); });
+    }
+
+    c.size.addEventListener('input', function () {
+      state.positions[key].size = Number(c.size.value);
+      c.sizeVal.textContent = c.size.value;
+      commit();
+    });
+    c.font.addEventListener('change', function () { setStyleField(key, 'font', c.font.value); });
+    c.color.addEventListener('input', function () { setStyleField(key, 'color', c.color.value); });
+    c.outlineColor.addEventListener('input', function () { setStyleField(key, 'outlineColor', c.outlineColor.value); });
+    c.outline.addEventListener('input', function () {
+      c.outlineVal.textContent = c.outline.value;
+      setStyleField(key, 'outline', Number(c.outline.value));
+    });
+    c.widthScale.addEventListener('input', function () {
+      c.widthVal.textContent = c.widthScale.value;
+      setStyleField(key, 'widthScale', Number(c.widthScale.value) / 100);
+    });
+    c.x.addEventListener('input', function () {
+      state.positions[key].x = Number(c.x.value) || 0;
+      commit();
+    });
+    c.y.addEventListener('input', function () {
+      state.positions[key].y = Number(c.y.value) || 0;
+      commit();
+    });
+  });
+
+  /* パネルの入力値を state に合わせる */
+  function syncPanel(key) {
+    var c = ctrls[key];
+    var p = state.positions[key];
+    c.vis.textContent = p.visible ? '表示中' : '非表示';
+    c.vis.classList.toggle('on', p.visible);
+    c.size.value = p.size;
+    c.sizeVal.textContent = p.size;
+    c.font.value = p.font;
+    c.color.value = p.color;
+    c.outlineColor.value = p.outlineColor;
+    c.outline.value = p.outline;
+    c.outlineVal.textContent = p.outline;
+    c.widthScale.value = Math.round(p.widthScale * 100);
+    c.widthVal.textContent = Math.round(p.widthScale * 100);
+    c.x.value = p.x;
+    c.y.value = p.y;
+  }
+
+  /* ---------------------------------------------------------------
+   * 試合情報の入力
+   * ------------------------------------------------------------- */
+  var inP1name = document.getElementById('in_p1name');
+  var inP2name = document.getElementById('in_p2name');
+  var inRound = document.getElementById('in_round');
+  var inBo = document.getElementById('in_bo');
+  var inCanvasW = document.getElementById('in_canvasW');
+  var inCanvasH = document.getElementById('in_canvasH');
+  var inLink = document.getElementById('in_linkStyle');
+
+  inBo.innerHTML = SCOREBOARD_BO_OPTIONS.map(function (o) {
+    return '<option value="' + o + '">' + o + '</option>';
+  }).join('');
+
+  inP1name.addEventListener('input', function () { state.p1name = inP1name.value; commit(); });
+  inP2name.addEventListener('input', function () { state.p2name = inP2name.value; commit(); });
+  inRound.addEventListener('input', function () { state.round = inRound.value; commit(); });
+  inBo.addEventListener('change', function () { state.bo = inBo.value; commit(); });
+
+  inCanvasW.addEventListener('input', function () {
+    state.canvasW = Math.max(1, Number(inCanvasW.value) || 1);
+    commit();
+  });
+  inCanvasH.addEventListener('input', function () {
+    state.canvasH = Math.max(1, Number(inCanvasH.value) || 1);
+    commit();
+  });
+
+  inLink.addEventListener('change', function () {
+    state.linkP1P2Style = inLink.checked;
+    commit();
+  });
+
+  /* スコアの +/- ボタン */
+  document.querySelectorAll('[data-bump]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var field = btn.dataset.bump;
+      state[field] = scoreboardBump(state[field], Number(btn.dataset.delta));
+      syncMatchInputs();
+      commit();
+    });
+  });
+
+  document.getElementById('btnResetScores').addEventListener('click', function () {
+    scoreboardResetScores(state);
+    syncMatchInputs();
+    commit();
+  });
+
+  /* 背景画像 */
+  document.getElementById('in_bgfile').addEventListener('change', function (ev) {
+    var file = ev.target.files && ev.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      state.bg = reader.result;
+      if (!saveState(state)) {
+        alert('背景画像が大きすぎて保存できませんでした。画像を縮小してから再度お試しください。');
+        state.bg = null;
+        saveState(state);
+      }
+      renderStage();
+    };
+    reader.readAsDataURL(file);
+  });
+
+  document.getElementById('btnClearBg').addEventListener('click', function () {
+    state.bg = null;
+    document.getElementById('in_bgfile').value = '';
+    commit();
+  });
+
+  /* 試合情報系の入力欄を state に合わせる */
+  function syncMatchInputs() {
+    inP1name.value = state.p1name;
+    inP2name.value = state.p2name;
+    inRound.value = state.round;
+    inBo.value = state.bo;
+    inCanvasW.value = state.canvasW;
+    inCanvasH.value = state.canvasH;
+    inLink.checked = !!state.linkP1P2Style;
+    document.getElementById('num_p1score').textContent = state.p1score;
+    document.getElementById('num_p2score').textContent = state.p2score;
+    inSheetUrl.value = state.sheetSyncUrl || '';
+    inSheetEnabled.checked = !!state.sheetSyncEnabled;
+  }
+
+  /* ---------------------------------------------------------------
+   * Google スプレッドシート連携
+   *
+   * 【セキュリティ注意】Apps Script のウェブアプリを「アクセスできるユーザー: 全員」
+   * で公開すると、URL を知っている人は誰でもその内容を取得できます。認証を挟まない
+   * 構成のため、URL の取り扱いには注意してください(配信画面に映さない、公開の場に
+   * 貼らない)。またシートの編集権限を渡した相手はスコアを自由に書き換えられます。
+   * ------------------------------------------------------------- */
+  var inSheetUrl = document.getElementById('in_sheetUrl');
+  var inSheetEnabled = document.getElementById('in_sheetEnabled');
+  var syncStatus = document.getElementById('syncStatus');
+  var SYNC_INTERVAL_MS = 7000;
+  var syncTimer = null;
+
+  /* シートから受け取ってよいフィールドとその型(スタイル情報は一切含めない) */
+  var SHEET_FIELDS = {
+    p1name: 'string', p2name: 'string', round: 'string', bo: 'bo',
+    p1score: 'number', p2score: 'number'
+  };
+
+  function setSyncStatus(msg, cls) {
+    syncStatus.textContent = msg;
+    syncStatus.className = cls || '';
+  }
+
+  function applySheetData(data) {
+    /* 配列で返ってきた場合は先頭行をレコードとして扱う */
+    if (Array.isArray(data)) data = data[0];
+    if (!data || typeof data !== 'object') return false;
+
+    var changed = false;
+    Object.keys(SHEET_FIELDS).forEach(function (field) {
+      if (!Object.prototype.hasOwnProperty.call(data, field)) return;
+      var raw = data[field];
+      if (raw === null || raw === undefined || raw === '') return;
+      var type = SHEET_FIELDS[field];
+      var val;
+      if (type === 'number') {
+        val = Number(raw);
+        if (!isFinite(val)) return;
+        val = Math.max(0, Math.round(val));
+      } else if (type === 'bo') {
+        val = String(raw).trim().toUpperCase();
+        if (SCOREBOARD_BO_OPTIONS.indexOf(val) === -1) return;
+      } else {
+        val = String(raw);
+      }
+      /* 競合時は直近に取得したシートの値を優先(ローカル操作を上書きする) */
+      if (state[field] !== val) {
+        state[field] = val;
+        changed = true;
+      }
+    });
+    return changed;
+  }
+
+  function fetchSheet(manual) {
+    var url = (state.sheetSyncUrl || '').trim();
+    if (!url) {
+      setSyncStatus('URL が未入力です。', 'err');
+      return;
+    }
+    /* キャッシュ回避のためタイムスタンプを付与 */
+    var sep = url.indexOf('?') === -1 ? '?' : '&';
+    fetch(url + sep + '_t=' + Date.now(), { method: 'GET', redirect: 'follow' })
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function (data) {
+        var changed = applySheetData(data);
+        syncMatchInputs();
+        if (changed) commit(); else renderStage();
+        setSyncStatus('最終取得: ' + new Date().toLocaleTimeString() + (changed ? '(更新あり)' : '(変更なし)'), 'ok');
+      })
+      .catch(function (err) {
+        setSyncStatus('取得に失敗しました: ' + err.message + ' — URL と公開設定(アクセスできるユーザー: 全員)を確認してください。', 'err');
+      });
+    if (manual) setSyncStatus('取得中...', '');
+  }
+
+  function updateSyncTimer() {
+    if (syncTimer) { clearInterval(syncTimer); syncTimer = null; }
+    if (state.sheetSyncEnabled && (state.sheetSyncUrl || '').trim()) {
+      syncTimer = setInterval(function () { fetchSheet(false); }, SYNC_INTERVAL_MS);
+      fetchSheet(false);
+      setSyncStatus('同期中...', '');
+    } else {
+      setSyncStatus('同期は停止中です。', '');
+    }
+  }
+
+  inSheetUrl.addEventListener('input', function () {
+    state.sheetSyncUrl = inSheetUrl.value;
+    saveState(state);
+    updateSyncTimer();
+  });
+  inSheetEnabled.addEventListener('change', function () {
+    state.sheetSyncEnabled = inSheetEnabled.checked;
+    saveState(state);
+    updateSyncTimer();
+  });
+  document.getElementById('btnSyncNow').addEventListener('click', function () { fetchSheet(true); });
+
+  /* ---------------------------------------------------------------
+   * 初期化
+   * ------------------------------------------------------------- */
+  syncMatchInputs();
+  SCOREBOARD_ELEMENTS.forEach(function (def) { syncPanel(def.key); });
+  select('p1name');
+  renderStage();
+  updateSyncTimer();
+
+  window.addEventListener('resize', renderStage);
+  /* Web フォント読み込み完了後に文字幅が変わるので再描画 */
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(renderStage);
+})();
+</script>
+
+</body>
+</html>

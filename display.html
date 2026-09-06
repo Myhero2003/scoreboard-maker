@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Scoreboard Display</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Bebas+Neue&family=Inter:wght@400;700;900&family=Noto+Sans+JP:wght@400;700;900&family=Oswald:wght@400;600;700&family=Russo+One&display=swap" rel="stylesheet">
+<style>
+  /* OBS ブラウザソース用: 完全透過。操作 UI は一切持たない */
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    overflow: hidden;
+  }
+  #stage {
+    position: relative;
+    overflow: hidden;
+    background: transparent;
+    transform-origin: top left;
+  }
+  #bg {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    pointer-events: none;
+  }
+  .el {
+    position: absolute;
+    white-space: nowrap;
+    line-height: 1.1;
+    user-select: none;
+    pointer-events: none;
+  }
+  .el > span {
+    display: inline-block;
+    /* 色 / -webkit-text-stroke / transform:scaleX は JS から適用する */
+  }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <img id="bg" alt="">
+  <!-- 要素は scoreboard-core.js の SCOREBOARD_ELEMENTS 順に JS で生成 -->
+</div>
+
+<script src="scoreboard-core.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var stage = document.getElementById('stage');
+  var bgImg = document.getElementById('bg');
+  var nodes = {};   // key -> { box, span }
+  var lastRaw = ''; // 直近に描画した状態の JSON 文字列(差分検知用)
+
+  /* 要素 DOM を生成 */
+  SCOREBOARD_ELEMENTS.forEach(function (def) {
+    var box = document.createElement('div');
+    box.className = 'el';
+    box.dataset.key = def.key;
+    var span = document.createElement('span');
+    box.appendChild(span);
+    stage.appendChild(box);
+    nodes[def.key] = { box: box, span: span };
+  });
+
+  function render(state) {
+    stage.style.width = state.canvasW + 'px';
+    stage.style.height = state.canvasH + 'px';
+
+    if (state.bg) {
+      bgImg.src = state.bg;
+      bgImg.style.display = 'block';
+    } else {
+      bgImg.removeAttribute('src');
+      bgImg.style.display = 'none';
+    }
+
+    SCOREBOARD_ELEMENTS.forEach(function (def) {
+      var n = nodes[def.key];
+      var pos = state.positions[def.key];
+      n.span.textContent = scoreboardTextFor(def.key, state);
+      scoreboardApplyStyle(n.box, n.span, pos);
+    });
+  }
+
+  /* 状態が変化していた場合のみ再描画する */
+  function refresh() {
+    var raw;
+    try {
+      raw = localStorage.getItem(SCOREBOARD_STORAGE_KEY) || '';
+    } catch (e) {
+      raw = '';
+    }
+    if (raw === lastRaw) return;
+    lastRaw = raw;
+    render(loadState());
+  }
+
+  /* 初回描画 */
+  render(loadState());
+  try { lastRaw = localStorage.getItem(SCOREBOARD_STORAGE_KEY) || ''; } catch (e) { lastRaw = ''; }
+
+  /* 変化検知: storage イベント(別ブラウザソースからの更新)*/
+  window.addEventListener('storage', function (ev) {
+    if (ev.key === null || ev.key === SCOREBOARD_STORAGE_KEY) refresh();
+  });
+
+  /* 変化検知: ポーリング(storage イベントが飛ばない環境向けの保険)*/
+  setInterval(refresh, 500);
+})();
+</script>
+
+</body>
+</html>
