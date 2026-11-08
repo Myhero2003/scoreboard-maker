@@ -19,6 +19,7 @@
     --accent: #4f8cff;
     --accent2: #ff5c7a;
     --ok: #35c88a;
+    --warn: #e0a63a;
   }
   * { box-sizing: border-box; }
   body {
@@ -134,7 +135,7 @@
 
   /* ---- フォーム部品 ---- */
   label { display: block; color: var(--fg-dim); font-size: 11px; margin-bottom: 3px; }
-  input[type=text], input[type=number], select {
+  input[type=text], input[type=number], select, textarea {
     background: var(--bg3);
     color: var(--fg);
     border: 1px solid var(--line);
@@ -151,6 +152,7 @@
     padding: 2px;
     cursor: pointer;
   }
+  textarea { resize: vertical; font-family: inherit; line-height: 1.5; }
   input[type=range] { width: 100%; accent-color: var(--accent); }
   button {
     background: var(--bg3);
@@ -162,6 +164,10 @@
     cursor: pointer;
   }
   button:hover { background: #363d48; }
+  button:disabled { opacity: .4; cursor: default; }
+  button:disabled:hover { background: var(--bg3); }
+  input.pending { border-color: var(--warn); background: #332b1d; }
+  #applyStatus.pending { color: var(--warn); font-weight: 700; }
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   button.primary:hover { filter: brightness(1.1); }
   button.danger { background: #3a2429; border-color: #5c343c; color: #ffb9c4; }
@@ -194,6 +200,9 @@
     color: var(--fg-dim);
   }
   .fld { margin-bottom: 8px; }
+  .seg { display: flex; gap: 4px; }
+  .seg button { flex: 1 1 0; padding: 5px 0; }
+  .seg button.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
   .val { color: var(--fg); font-variant-numeric: tabular-nums; }
 
   /* スコア操作 */
@@ -234,6 +243,8 @@
   #syncStatus { font-size: 11px; color: var(--fg-dim); }
   #syncStatus.err { color: #ff8fa3; }
   #syncStatus.ok { color: var(--ok); }
+  #jsonStatus.ok { color: var(--ok); }
+  #jsonStatus.err { color: #ff8fa3; }
 </style>
 </head>
 <body>
@@ -251,13 +262,18 @@
   <!-- ================= 試合情報 ================= -->
   <div class="card">
     <h2>試合情報</h2>
+    <div class="row" style="margin-bottom:12px">
+      <button class="fixed primary" id="btnApplyText" disabled>テキストを反映</button>
+      <button class="fixed" id="btnSwap" title="P1 と P2 の名前・スコアを入れ替えます(配置とスタイルはそのまま)">P1 / P2 を入れ替え</button>
+      <span class="note fixed" id="applyStatus">名前・ラウンド情報・フォーマットは、このボタン(または Enter)を押すまで配信に反映されません。</span>
+    </div>
     <div class="grid">
 
       <div class="panel">
         <h3>P1</h3>
         <div class="fld">
           <label>名前</label>
-          <input type="text" id="in_p1name">
+          <input type="text" id="in_p1name" list="player_names" autocomplete="off">
         </div>
         <label>スコア</label>
         <div class="scorebox">
@@ -271,7 +287,8 @@
         <h3>P2</h3>
         <div class="fld">
           <label>名前</label>
-          <input type="text" id="in_p2name">
+          <input type="text" id="in_p2name" list="player_names" autocomplete="off">
+          <datalist id="player_names"></datalist>
         </div>
         <label>スコア</label>
         <div class="scorebox">
@@ -288,10 +305,20 @@
           <input type="text" id="in_round">
         </div>
         <div class="fld">
-          <label>BO フォーマット</label>
-          <select id="in_bo"></select>
+          <label>フォーマット(自由入力 / 候補から選択)</label>
+          <input type="text" id="in_bo" list="bo_options" placeholder="BO3 / Best of 5 / 2本先取 など" autocomplete="off">
+          <datalist id="bo_options"></datalist>
         </div>
         <button class="danger" id="btnResetScores">スコアをリセット</button>
+      </div>
+
+      <div class="panel">
+        <h3>プレイヤー名の登録 <span class="tag" id="playerCount"></span></h3>
+        <div class="fld">
+          <label>1 行に 1 名。名前欄に入力候補として出ます</label>
+          <textarea id="in_playerNames" rows="5" placeholder="SAKURAI&#10;NAKAMURA&#10;..."></textarea>
+        </div>
+        <button id="btnAddCurrentNames">いまの 2 名を追加</button>
       </div>
 
     </div>
@@ -333,6 +360,32 @@
       <span class="note fixed">連動 ON の間は フォント / 色 / 縁取り / 縁取り色 / 横幅 が左右で同期します(位置とサイズは除く)。</span>
     </div>
     <div class="grid" id="panels"><!-- JS で生成 --></div>
+  </div>
+
+  <!-- ================= 設定の書き出し・読み込み ================= -->
+  <div class="card">
+    <h2>設定の書き出し・読み込み</h2>
+    <div class="row" style="margin-bottom:10px">
+      <div class="fixed"><button class="primary" id="btnExport">JSON をダウンロード</button></div>
+      <div class="fixed"><button id="btnToggleJson">テキストで表示 / 貼り付け</button></div>
+      <div>
+        <label>ファイルから読み込む(現在の設定は置き換わります)</label>
+        <input type="file" id="in_importFile" accept="application/json,.json">
+      </div>
+    </div>
+    <div id="jsonArea" style="display:none">
+      <textarea id="in_jsonBox" rows="8" spellcheck="false" placeholder="ここに JSON を貼り付けて「このテキストを読み込む」を押します"></textarea>
+      <div class="row" style="margin-top:8px">
+        <div class="fixed"><button id="btnCopyJson">クリップボードにコピー</button></div>
+        <div class="fixed"><button id="btnImportText">このテキストを読み込む</button></div>
+        <span class="note fixed" id="jsonStatus"></span>
+      </div>
+    </div>
+    <p class="note">
+      配置・スタイル・背景画像・登録名まで含めた全設定を 1 つの JSON ファイルに保存します。
+      localStorage は OBS のキャッシュを消すと一緒に消えるため、設定が固まったら書き出しておくことを強く推奨します。
+      別 PC への移行や、他の配信者への受け渡しにも使えます。
+    </p>
   </div>
 
   <!-- ================= スプレッドシート連携 ================= -->
@@ -431,6 +484,7 @@ function doGet(e) {
         </div>
       </div>
       <p class="note" id="previewInfo"></p>
+      <p class="note">ドラッグで移動 / 右下ハンドルでサイズ変更 / <strong>矢印キーで 1px・Shift+矢印で 10px</strong> 移動</p>
     </div>
   </div><!-- /col-right -->
 
@@ -457,9 +511,26 @@ function doGet(e) {
    * 保存 + 再描画
    * ------------------------------------------------------------- */
   function commit() {
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
     saveState(state);
     renderStage();
   }
+
+  /*
+   * 矢印キーの連打・長押し用。再描画は即座に、保存だけ遅延させる。
+   * 背景画像を含む状態は数百 KB になるため、キーリピートのたびに
+   * localStorage へ書くと重くなる。
+   */
+  var saveTimer = null;
+  function commitSoon() {
+    renderStage();
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(function () { saveTimer = null; saveState(state); }, 150);
+  }
+  /* 保存待ちのまま閉じられた場合に備える */
+  window.addEventListener('beforeunload', function () {
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; saveState(state); }
+  });
 
   /* ---------------------------------------------------------------
    * プレビュー描画
@@ -471,6 +542,7 @@ function doGet(e) {
   }
 
   function renderStage() {
+    var view = viewState();
     computeScale();
     stage.style.width = state.canvasW + 'px';
     stage.style.height = state.canvasH + 'px';
@@ -493,7 +565,7 @@ function doGet(e) {
     SCOREBOARD_ELEMENTS.forEach(function (def) {
       var n = nodes[def.key];
       var pos = state.positions[def.key];
-      n.span.textContent = scoreboardTextFor(def.key, state);
+      n.span.textContent = scoreboardTextFor(def.key, view);
       scoreboardApplyStyle(n.box, n.span, pos);
       /* コントロール側では非表示要素も薄く表示して掴めるようにする */
       n.box.style.display = 'block';
@@ -602,6 +674,26 @@ function doGet(e) {
     commit();
   }
 
+  /*
+   * 揃え基準を変更する。
+   * 基準を変えると x の意味が変わるので、そのままだと文字が左右に飛ぶ。
+   * 見た目の位置が動かないように x を測り直して補正する。
+   */
+  function setAlign(key, align) {
+    var pos = state.positions[key];
+    if (pos.align === align) return;
+    var visLeft = function () {
+      var L = stage.getBoundingClientRect().left;
+      return (nodes[key].span.getBoundingClientRect().left - L) / scale;
+    };
+    var before = visLeft();
+    pos.align = align;
+    renderStage();
+    pos.x = Math.round(pos.x + (before - visLeft()));
+    syncPanel(key);
+    commit();
+  }
+
   /* 反対側へスタイル 5 項目 + サイズをコピー(位置 x, y はコピーしない) */
   function copyStyleToPair(key) {
     var pair = SCOREBOARD_STYLE_PAIRS[key];
@@ -609,6 +701,51 @@ function doGet(e) {
     SCOREBOARD_COPY_KEYS.forEach(function (f) {
       state.positions[pair][f] = state.positions[key][f];
     });
+    syncPanel(pair);
+    commit();
+  }
+
+  /*
+   * 反対側の要素を、キャンバスの垂直中心線に対して左右対称な位置へ移動する。
+   * 文字列長が左右で違っても、両端からの距離が揃う。
+   *
+   * span の getBoundingClientRect() は scaleX(横幅調整)を反映した
+   * 実際の見た目の矩形を返すため、これを基準に計算する。
+   * (box の幅は transform 前の値なので使えない)
+   */
+  function mirrorToPair(key) {
+    var pair = SCOREBOARD_STYLE_PAIRS[key];
+    if (!pair) return;
+
+    /* 揃え基準も左右反転する(左寄せの反対側は右寄せ)。
+       先に反映しておかないと、この後の位置計算がずれる。 */
+    var FLIP = { left: 'right', right: 'left', center: 'center' };
+    state.positions[pair].align = FLIP[state.positions[key].align] || 'left';
+    renderStage();
+
+    var stageLeft = stage.getBoundingClientRect().left;
+    var toCanvas = function (clientX) { return (clientX - stageLeft) / scale; };
+
+    var src = nodes[key].span.getBoundingClientRect();
+    var dst = nodes[pair].span.getBoundingClientRect();
+    var srcLeft = toCanvas(src.left), srcRight = toCanvas(src.right);
+    var dstLeft = toCanvas(dst.left), dstRight = toCanvas(dst.right);
+    var dstWidth = dstRight - dstLeft;
+    var W = state.canvasW;
+
+    /*
+     * 自分の矩形を中心線で反転した位置 [W - srcRight, W - srcLeft] を求める。
+     * 左右で文字数が違うと幅が一致しないので、両端のうち「外側」を基準に合わせる。
+     * (そろえたいのはキャンバス端からの距離なので、内側ではなく外側で合わせる)
+     */
+    var mirrorLeft = W - srcRight, mirrorRight = W - srcLeft;
+    var desiredLeft = ((mirrorLeft + mirrorRight) / 2 < W / 2)
+      ? mirrorLeft                 /* 反転先が左半分 → 左端を合わせる */
+      : mirrorRight - dstWidth;    /* 反転先が右半分 → 右端を合わせる */
+
+    state.positions[pair].x = Math.round(state.positions[pair].x + (desiredLeft - dstLeft));
+    state.positions[pair].y = state.positions[key].y;   // 高さも揃える
+
     syncPanel(pair);
     commit();
   }
@@ -636,6 +773,15 @@ function doGet(e) {
       '<div class="row" style="margin-bottom:8px">' +
         '<button class="fixed" data-role="vis"></button>' +
         (pair ? '<button class="fixed" data-role="copy" title="フォント / 文字色 / 縁取り / 縁取り色 / 横幅 / サイズ を反対側にコピーします(位置はコピーしません)">反対側にコピー</button>' : '') +
+        (pair ? '<button class="fixed" data-role="mirror" title="反対側の要素を、キャンバス中央を軸にした左右対称の位置へ移動します(高さも揃います)">左右対称に配置</button>' : '') +
+      '</div>' +
+      '<div class="fld">' +
+        '<label>揃え基準(x 座標がどの端を指すか)</label>' +
+        '<div class="seg">' +
+          SCOREBOARD_ALIGNS.map(function (a) {
+            return '<button data-role="align" data-align="' + a.value + '">' + a.label + '</button>';
+          }).join('') +
+        '</div>' +
       '</div>' +
       '<div class="fld">' +
         '<label>サイズ <span class="val" data-role="sizeVal"></span> px</label>' +
@@ -674,7 +820,8 @@ function doGet(e) {
       color: q('color'), outlineColor: q('outlineColor'),
       outline: q('outline'), outlineVal: q('outlineVal'),
       widthScale: q('widthScale'), widthVal: q('widthVal'),
-      x: q('x'), y: q('y')
+      x: q('x'), y: q('y'),
+      alignBtns: panel.querySelectorAll('[data-role="align"]')
     };
     ctrls[key] = c;
 
@@ -688,7 +835,12 @@ function doGet(e) {
 
     if (pair) {
       q('copy').addEventListener('click', function () { copyStyleToPair(key); });
+      q('mirror').addEventListener('click', function () { mirrorToPair(key); });
     }
+
+    Array.prototype.forEach.call(c.alignBtns, function (b) {
+      b.addEventListener('click', function () { setAlign(key, b.dataset.align); });
+    });
 
     c.size.addEventListener('input', function () {
       state.positions[key].size = Number(c.size.value);
@@ -733,6 +885,9 @@ function doGet(e) {
     c.widthVal.textContent = Math.round(p.widthScale * 100);
     c.x.value = p.x;
     c.y.value = p.y;
+    Array.prototype.forEach.call(c.alignBtns, function (b) {
+      b.classList.toggle('on', b.dataset.align === p.align);
+    });
   }
 
   /* ---------------------------------------------------------------
@@ -745,15 +900,106 @@ function doGet(e) {
   var inCanvasW = document.getElementById('in_canvasW');
   var inCanvasH = document.getElementById('in_canvasH');
   var inLink = document.getElementById('in_linkStyle');
+  var btnApplyText = document.getElementById('btnApplyText');
+  var applyStatus = document.getElementById('applyStatus');
 
-  inBo.innerHTML = SCOREBOARD_BO_OPTIONS.map(function (o) {
-    return '<option value="' + o + '">' + o + '</option>';
+  document.getElementById('bo_options').innerHTML = SCOREBOARD_BO_OPTIONS.map(function (o) {
+    return '<option value="' + o.replace(/"/g, '&quot;') + '"></option>';
   }).join('');
 
-  inP1name.addEventListener('input', function () { state.p1name = inP1name.value; commit(); });
-  inP2name.addEventListener('input', function () { state.p2name = inP2name.value; commit(); });
-  inRound.addEventListener('input', function () { state.round = inRound.value; commit(); });
-  inBo.addEventListener('change', function () { state.bo = inBo.value; commit(); });
+  /*
+   * 名前とラウンド情報は入力のたびに反映すると、打ちかけ・消しかけの文字が
+   * そのまま配信に出てしまう。確定するまでは draft に溜めておき、
+   * 「テキストを反映」ボタン(または Enter)で初めて state に移す。
+   * プレビューには draft を表示するので、反映前に収まり具合を確認できる。
+   */
+  var TEXT_FIELDS = { p1name: inP1name, p2name: inP2name, round: inRound, bo: inBo };
+  var draft = {};
+
+  function hasPendingText() {
+    for (var k in draft) {
+      if (Object.prototype.hasOwnProperty.call(draft, k)) return true;
+    }
+    return false;
+  }
+
+  /* プレビュー用: state に draft を重ねた値を返す */
+  function viewState() {
+    if (!hasPendingText()) return state;
+    var v = {};
+    for (var k in state) {
+      if (Object.prototype.hasOwnProperty.call(state, k)) v[k] = state[k];
+    }
+    for (var d in draft) {
+      if (Object.prototype.hasOwnProperty.call(draft, d)) v[d] = draft[d];
+    }
+    return v;
+  }
+
+  function updateApplyUI() {
+    var pending = hasPendingText();
+    btnApplyText.disabled = !pending;
+    applyStatus.textContent = pending
+      ? '未反映の変更があります。プレビューは未反映の内容を表示しています。'
+      : '名前・ラウンド情報・フォーマットは、このボタン(または Enter)を押すまで配信に反映されません。';
+    applyStatus.classList.toggle('pending', pending);
+    for (var k in TEXT_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(TEXT_FIELDS, k)) {
+        TEXT_FIELDS[k].classList.toggle('pending', Object.prototype.hasOwnProperty.call(draft, k));
+      }
+    }
+  }
+
+  /* draft を state へ移して保存する(key 省略時は全フィールド) */
+  function applyText(key) {
+    var keys = key ? [key] : Object.keys(draft);
+    var moved = false;
+    keys.forEach(function (k) {
+      if (!Object.prototype.hasOwnProperty.call(draft, k)) return;
+      state[k] = draft[k];
+      delete draft[k];
+      moved = true;
+    });
+    if (!moved) return;
+    updateApplyUI();
+    commit();
+  }
+
+  /* 指定フィールド(省略時は全部)の draft を捨てて、反映済みの値に戻す */
+  function discardText(key) {
+    var keys = key ? [key] : Object.keys(TEXT_FIELDS);
+    keys.forEach(function (k) {
+      delete draft[k];
+      TEXT_FIELDS[k].value = state[k];
+    });
+    updateApplyUI();
+    renderStage();
+  }
+
+  Object.keys(TEXT_FIELDS).forEach(function (key) {
+    var input = TEXT_FIELDS[key];
+    input.addEventListener('input', function () {
+      if (input.value === state[key]) delete draft[key];   // 元に戻したら未反映を解除
+      else draft[key] = input.value;
+      updateApplyUI();
+      renderStage();          // プレビューだけ更新(保存も配信反映もしない)
+    });
+    input.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter') { ev.preventDefault(); applyText(); }
+      else if (ev.key === 'Escape') { ev.preventDefault(); discardText(key); }
+    });
+  });
+
+  /* applyText を直接渡すと MouseEvent が key 引数に入ってしまうので包む */
+  btnApplyText.addEventListener('click', function () { applyText(); });
+
+  /*
+    * フォーマット欄は候補から選んだ場合(change)だけ即座に反映する。
+    * 手入力の途中(input)は他のテキスト欄と同じく draft に溜まる。
+    */
+  inBo.addEventListener('change', function () {
+    if (SCOREBOARD_BO_OPTIONS.indexOf(inBo.value) !== -1) applyText('bo');
+  });
 
   inCanvasW.addEventListener('input', function () {
     state.canvasW = Math.max(1, Number(inCanvasW.value) || 1);
@@ -785,6 +1031,187 @@ function doGet(e) {
     commit();
   });
 
+  /* ---------------------------------------------------------------
+   * P1 / P2 の入れ替え
+   * 名前とスコアだけを交換する。配置とスタイルは左右に固定したまま。
+   * ------------------------------------------------------------- */
+  function swapKeys(obj, a, b) {
+    var hasA = Object.prototype.hasOwnProperty.call(obj, a);
+    var hasB = Object.prototype.hasOwnProperty.call(obj, b);
+    var va = obj[a], vb = obj[b];
+    if (hasB) obj[a] = vb; else delete obj[a];
+    if (hasA) obj[b] = va; else delete obj[b];
+  }
+
+  document.getElementById('btnSwap').addEventListener('click', function () {
+    swapKeys(state, 'p1name', 'p2name');
+    swapKeys(state, 'p1score', 'p2score');
+    swapKeys(draft, 'p1name', 'p2name');   // 入力中の未反映テキストも一緒に移す
+    syncMatchInputs();
+    updateApplyUI();
+    commit();
+  });
+
+  /* ---------------------------------------------------------------
+   * プレイヤー名の登録リスト(入力補完用。配信には出ない)
+   * ------------------------------------------------------------- */
+  var inPlayerNames = document.getElementById('in_playerNames');
+  var playerCount = document.getElementById('playerCount');
+  var playerDatalist = document.getElementById('player_names');
+
+  function parseNames(text) {
+    var seen = {}, out = [];
+    text.split('\n').forEach(function (line) {
+      var v = line.trim();
+      if (!v || seen[v]) return;
+      seen[v] = true;
+      out.push(v);
+    });
+    return out;
+  }
+
+  function renderPlayerNames() {
+    var names = state.playerNames || [];
+    playerCount.textContent = names.length ? names.length + ' 名' : '';
+    playerDatalist.innerHTML = names.map(function (n) {
+      return '<option value="' + n.replace(/"/g, '&quot;') + '"></option>';
+    }).join('');
+  }
+
+  inPlayerNames.addEventListener('input', function () {
+    state.playerNames = parseNames(inPlayerNames.value);
+    renderPlayerNames();
+    commitSoon();          // 1 文字ごとに保存すると重いので遅延保存
+  });
+
+  document.getElementById('btnAddCurrentNames').addEventListener('click', function () {
+    var names = (state.playerNames || []).slice();
+    [inP1name.value, inP2name.value].forEach(function (v) {
+      v = (v || '').trim();
+      if (v && names.indexOf(v) === -1) names.push(v);
+    });
+    state.playerNames = names;
+    inPlayerNames.value = names.join('\n');
+    renderPlayerNames();
+    commit();
+  });
+
+  /* ---------------------------------------------------------------
+   * 設定の書き出し / 読み込み
+   * ------------------------------------------------------------- */
+  var jsonArea = document.getElementById('jsonArea');
+  var inJsonBox = document.getElementById('in_jsonBox');
+  var jsonStatus = document.getElementById('jsonStatus');
+
+  function setJsonStatus(msg, cls) {
+    jsonStatus.textContent = msg || '';
+    jsonStatus.className = 'note fixed' + (cls ? ' ' + cls : '');
+  }
+
+  function stateFileName() {
+    var d = new Date(), p = function (n) { return (n < 10 ? '0' : '') + n; };
+    return 'scoreboard-' + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate())
+         + '-' + p(d.getHours()) + p(d.getMinutes()) + '.json';
+  }
+
+  document.getElementById('btnExport').addEventListener('click', function () {
+    var blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = stateFileName();
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    /*
+     * OBS の内蔵ブラウザはダウンロードを処理しないことがある。
+     * 何も起きなかった場合に備えて、コピー用のテキスト欄を開いておく。
+     */
+    showJsonBox();
+    setJsonStatus('ダウンロードが始まらない場合は、下のテキストをコピーして保存してください。');
+  });
+
+  function showJsonBox() {
+    jsonArea.style.display = 'block';
+    inJsonBox.value = JSON.stringify(state, null, 2);
+  }
+
+  document.getElementById('btnToggleJson').addEventListener('click', function () {
+    if (jsonArea.style.display === 'none') {
+      showJsonBox();
+      setJsonStatus('');
+    } else {
+      jsonArea.style.display = 'none';
+    }
+  });
+
+  document.getElementById('btnCopyJson').addEventListener('click', function () {
+    inJsonBox.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    if (!ok && navigator.clipboard) {
+      navigator.clipboard.writeText(inJsonBox.value).then(function () {
+        setJsonStatus('コピーしました。', 'ok');
+      }, function () {
+        setJsonStatus('コピーできませんでした。手動で選択してコピーしてください。', 'err');
+      });
+      return;
+    }
+    setJsonStatus(ok ? 'コピーしました。' : 'コピーできませんでした。手動で選択してコピーしてください。', ok ? 'ok' : 'err');
+  });
+
+  /* 読み込んだ JSON を状態に反映する。デフォルト値とマージするので
+     古いバージョンのファイルや一部欠けたファイルでも読める。 */
+  function importState(text, label) {
+    var parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch (e) {
+      setJsonStatus('JSON として読めませんでした: ' + e.message, 'err');
+      return false;
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      setJsonStatus('スコアボードの設定ファイルではないようです。', 'err');
+      return false;
+    }
+    if (!window.confirm('現在の設定(配置・スタイル・背景画像を含む)を、読み込んだ内容で置き換えます。よろしいですか?')) {
+      setJsonStatus('読み込みを中止しました。');
+      return false;
+    }
+    state = scoreboardDeepMerge(scoreboardDefaultState(), parsed);
+    draft = {};
+    inPlayerNames.value = (state.playerNames || []).join('\n');
+    if (!saveState(state)) {
+      setJsonStatus('読み込めましたが、保存に失敗しました(背景画像が大きすぎる可能性があります)。', 'err');
+    } else {
+      setJsonStatus((label || '') + '読み込みました。', 'ok');
+    }
+    syncMatchInputs();
+    updateApplyUI();
+    renderPlayerNames();
+    SCOREBOARD_ELEMENTS.forEach(function (def) { syncPanel(def.key); });
+    renderStage();
+    updateSyncTimer();
+    return true;
+  }
+
+  document.getElementById('btnImportText').addEventListener('click', function () {
+    importState(inJsonBox.value, '');
+  });
+
+  document.getElementById('in_importFile').addEventListener('change', function (ev) {
+    var file = ev.target.files && ev.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      showJsonBox();
+      importState(String(reader.result), file.name + ' を');
+      ev.target.value = '';   // 同じファイルを続けて選べるようにする
+    };
+    reader.readAsText(file);
+  });
+
   /* 背景画像 */
   document.getElementById('in_bgfile').addEventListener('change', function (ev) {
     var file = ev.target.files && ev.target.files[0];
@@ -810,10 +1237,11 @@ function doGet(e) {
 
   /* 試合情報系の入力欄を state に合わせる */
   function syncMatchInputs() {
-    inP1name.value = state.p1name;
-    inP2name.value = state.p2name;
-    inRound.value = state.round;
-    inBo.value = state.bo;
+    /* 入力中の未反映テキストを消さないよう、draft があればそちらを表示する */
+    inP1name.value = ('p1name' in draft) ? draft.p1name : state.p1name;
+    inP2name.value = ('p2name' in draft) ? draft.p2name : state.p2name;
+    inRound.value  = ('round'  in draft) ? draft.round  : state.round;
+    inBo.value = ('bo' in draft) ? draft.bo : state.bo;
     inCanvasW.value = state.canvasW;
     inCanvasH.value = state.canvasH;
     inLink.checked = !!state.linkP1P2Style;
@@ -839,7 +1267,7 @@ function doGet(e) {
 
   /* シートから受け取ってよいフィールドとその型(スタイル情報は一切含めない) */
   var SHEET_FIELDS = {
-    p1name: 'string', p2name: 'string', round: 'string', bo: 'bo',
+    p1name: 'string', p2name: 'string', round: 'string', bo: 'string',
     p1score: 'number', p2score: 'number'
   };
 
@@ -853,6 +1281,9 @@ function doGet(e) {
     if (Array.isArray(data)) data = data[0];
     if (!data || typeof data !== 'object') return false;
 
+    /* シートの値を優先する仕様なので、入力中の未反映テキストは破棄する */
+    if (hasPendingText()) { draft = {}; updateApplyUI(); }
+
     var changed = false;
     Object.keys(SHEET_FIELDS).forEach(function (field) {
       if (!Object.prototype.hasOwnProperty.call(data, field)) return;
@@ -864,9 +1295,6 @@ function doGet(e) {
         val = Number(raw);
         if (!isFinite(val)) return;
         val = Math.max(0, Math.round(val));
-      } else if (type === 'bo') {
-        val = String(raw).trim().toUpperCase();
-        if (SCOREBOARD_BO_OPTIONS.indexOf(val) === -1) return;
       } else {
         val = String(raw);
       }
@@ -931,10 +1359,37 @@ function doGet(e) {
    * 初期化
    * ------------------------------------------------------------- */
   syncMatchInputs();
+  updateApplyUI();
+  inPlayerNames.value = (state.playerNames || []).join('\n');
+  renderPlayerNames();
   SCOREBOARD_ELEMENTS.forEach(function (def) { syncPanel(def.key); });
   select('p1name');
   renderStage();
   updateSyncTimer();
+
+  /* 矢印キーで選択中の要素を微調整(1px / Shift で 10px) */
+  document.addEventListener('keydown', function (ev) {
+    if (!selected) return;
+    if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+    /* 入力欄にフォーカスがあるときはカーソル移動を優先する */
+    var el = document.activeElement;
+    if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
+
+    var dx = 0, dy = 0;
+    if (ev.key === 'ArrowLeft')       dx = -1;
+    else if (ev.key === 'ArrowRight') dx = 1;
+    else if (ev.key === 'ArrowUp')    dy = -1;
+    else if (ev.key === 'ArrowDown')  dy = 1;
+    else return;
+
+    ev.preventDefault();   // ページのスクロールを止める
+    var step = ev.shiftKey ? 10 : 1;
+    var pos = state.positions[selected];
+    pos.x += dx * step;
+    pos.y += dy * step;
+    syncPanel(selected);
+    commitSoon();
+  });
 
   window.addEventListener('resize', renderStage);
   /* Web フォント読み込み完了後に文字幅が変わるので再描画 */

@@ -24,8 +24,16 @@ var SCOREBOARD_FONTS = [
   { label: 'Inter',        value: "'Inter',sans-serif" }
 ];
 
-/* BO フォーマット選択肢 */
-var SCOREBOARD_BO_OPTIONS = ['BO1', 'BO3', 'BO5', 'BO7'];
+/*
+ * 対戦フォーマット欄の入力候補。
+ * この欄は自由入力で、ここに無い文字列(「Best of 9」「2本先取」など)も
+ * そのまま表示できる。以下はドロップダウンに出す候補にすぎない。
+ */
+var SCOREBOARD_BO_OPTIONS = [
+  'BO1', 'BO3', 'BO5', 'BO7', 'BO9',
+  'Best of 3', 'Best of 5', 'Best of 7',
+  'FT2', 'FT3', 'FT5'
+];
 
 /* 表示要素の定義(描画順・ラベル) */
 var SCOREBOARD_ELEMENTS = [
@@ -34,8 +42,28 @@ var SCOREBOARD_ELEMENTS = [
   { key: 'p1score', label: 'P1 スコア' },
   { key: 'p2score', label: 'P2 スコア' },
   { key: 'round',   label: 'ラウンド情報' },
-  { key: 'bo',      label: 'BO フォーマット' }
+  { key: 'bo',      label: 'フォーマット' }
 ];
+
+/*
+ * 文字の揃え基準。x 座標がどの端を指すかを決める。
+ *   left   : x が左端。文字が増えると右へ伸びる
+ *   center : x が中心。文字が増えると左右へ均等に伸びる
+ *   right  : x が右端。文字が増えると左へ伸びる
+ * 右側のプレイヤー名を right にしておくと、長い名前でもバーからはみ出さない。
+ */
+var SCOREBOARD_ALIGNS = [
+  { value: 'left',   label: '左' },
+  { value: 'center', label: '中央' },
+  { value: 'right',  label: '右' }
+];
+
+/* 揃え基準を CSS の translateX 量に変換する */
+function scoreboardAlignShift(align) {
+  if (align === 'center') return '-50%';
+  if (align === 'right')  return '-100%';
+  return '0';
+}
 
 /* P1/P2 スタイル連動の対象項目(位置とサイズは対象外) */
 var SCOREBOARD_STYLE_KEYS = ['font', 'color', 'outline', 'outlineColor', 'widthScale'];
@@ -57,7 +85,8 @@ function scoreboardDefaultPosition(x, y, size) {
     outline: 0,
     outlineColor: '#000000',
     font: "'Oswald',sans-serif",
-    widthScale: 1
+    widthScale: 1,
+    align: 'left'
   };
 }
 
@@ -74,6 +103,7 @@ function scoreboardDefaultState() {
     round: 'ROUND 1',
     bo: 'BO3',
     linkP1P2Style: false,  // P1/P2 スタイル連動トグル
+    playerNames: [],       // プレイヤー名の登録リスト(入力補完に使う。表示には出ない)
     sheetSyncUrl: '',      // Google Apps Script WebアプリのURL
     sheetSyncEnabled: false,
     positions: {
@@ -177,6 +207,8 @@ function scoreboardTextFor(key, state) {
 function scoreboardApplyStyle(box, span, pos) {
   box.style.left = pos.x + 'px';
   box.style.top = pos.y + 'px';
+  /* x が左端 / 中心 / 右端 のどれを指すかを translateX で表現する */
+  box.style.transform = 'translateX(' + scoreboardAlignShift(pos.align) + ')';
   box.style.fontSize = pos.size + 'px';
   box.style.fontFamily = pos.font;
   box.style.display = pos.visible ? 'block' : 'none';
